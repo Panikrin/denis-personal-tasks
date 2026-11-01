@@ -298,11 +298,36 @@ async function ghPull(){
     const txt=decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));
     const remote=JSON.parse(txt);
     if(remote&&remote.state){
-      const rRev=remote.rev||0,lRev=+(localStorage.getItem(KEY+'-rev')||0);
-      if(rRev>=lRev){S=Object.assign({tasks:{},subs:{},notes:{},who:{},due:{},open:{}},remote.state);saveLocal();localStorage.setItem(KEY+'-rev',String(rRev));render();}
+      S=mergeStates(S,remote.state);
+      saveLocal();render();
+      // если после слияния появились отличия от сервера — сразу отправим
+      if(JSON.stringify(S)!==JSON.stringify(remote.state))ghPush();
       syncUI('on','Синк: актуально · '+new Date(remote.date).toLocaleString('ru-RU'));
     }else{syncUI('err','state.json повреждён')}
   }catch(e){syncUI('err','Ошибка загрузки: '+e.message)}
+}
+// слияние: отмеченное остаётся отмеченным (union), тексты — непустые/локальные
+function mergeStates(local,remote){
+  const out={tasks:{},subs:{},notes:{},who:{},due:{},open:{}};
+  const keys=['tasks','subs','notes','who','due','open'];
+  for(const k of keys){
+    const src={...(remote[k]||{})};
+    for(const id in (local[k]||{})){
+      const lv=local[k][id];
+      if(k==='subs'&&Array.isArray(lv)){
+        const rv=src[id]||[];
+        src[id]=lv.map((v,i)=>v||rv[i]||false);
+      }else if(k==='open'){
+        src[id]=lv; // какие этапы раскрыты — локальное решение
+      }else if(lv!==undefined&&lv!==''&&lv!==null&&lv!==false){
+        src[id]=lv;
+      }else if(src[id]===undefined){
+        src[id]=lv;
+      }
+    }
+    out[k]=src;
+  }
+  return out;
 }
 async function ghPush(){
   if(!TOKEN)return;
